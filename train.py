@@ -51,7 +51,19 @@ class CodecLightningModule(pl.LightningModule):
     def construct_model(self):
         folder = os.path.dirname(os.path.realpath(__file__))
 
-        self.model = NeuCodec.from_pretrained("neuphonic/neucodec").train()
+        decoder_depth = self.cfg.model.codec_decoder.depth
+        if self.cfg.ckpt is not None:
+            self.model = NeuCodec._from_pretrained(
+                model_id=None, local_ckpt_path=self.cfg.ckpt,
+                decoder_depth=decoder_depth,
+            ).train()
+            print(f"Model loaded from local checkpoint: {self.cfg.ckpt}")
+        else:
+            self.model = NeuCodec._from_pretrained(
+                model_id="neuphonic/neucodec",
+                decoder_depth=decoder_depth,
+            ).train()
+            print("Model loaded from HuggingFace")
         for name, p in self.model.named_parameters():
             if 'generator' not in name:
                 p.requires_grad = False
@@ -89,7 +101,7 @@ class CodecLightningModule(pl.LightningModule):
         if cfg.use_mel_loss:
             self.criteria['mel_loss'] = MultiResolutionMelSpectrogramLoss(
                 sample_rate=48000,
-                window_lengths=[64, 128, 256, 512, 1024, 2048, 4096],
+                window_lengths=list(cfg.mel_window_lengths),
             )
         if cfg.use_stft_loss:
             self.criteria['stft_loss'] = MultiResolutionSTFTLoss(

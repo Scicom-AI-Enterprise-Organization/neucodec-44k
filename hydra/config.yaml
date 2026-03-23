@@ -151,6 +151,14 @@ train:
     lambda_stft_loss: 1.0
     lambda_semantic_loss: 5
     lambda_perceptual_loss: 0
+  mel_window_lengths:
+    - 64
+    - 128
+    - 256
+    - 512
+    - 1024
+    - 2048
+    - 4096
   use_mel_loss: true
   use_feat_match_loss: true
   use_stft_loss: true
@@ -170,11 +178,13 @@ train:
     betas:
     - 0.8
     - 0.9
+    weight_decay: 0.01
   disc_optim_params:
     lr: 1.0
     betas:
     - 0.8
     - 0.9
+    weight_decay: 0.01
   gen_grad_clip: 1.0
   disc_grad_clip: 1.0
   gen_schedule_params:

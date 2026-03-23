@@ -22,7 +22,7 @@ class NeuCodec(
     license="apache-2.0",
 ):
 
-    def __init__(self, sample_rate: int, hop_length: int):
+    def __init__(self, sample_rate: int, hop_length: int, decoder_depth: int = 12):
         super().__init__()
         self.sample_rate = sample_rate
         self.hop_length = hop_length
@@ -34,7 +34,7 @@ class NeuCodec(
         )
         self.SemanticEncoder_module = SemanticEncoder(1024, 1024, 1024)
         self.CodecEnc = CodecEncoder()
-        self.generator = CodecDecoderVocos(hop_length=hop_length)
+        self.generator = CodecDecoderVocos(hop_length=hop_length, depth=decoder_depth)
         self.fc_prior = nn.Linear(2048, 2048)
         self.fc_post_a = nn.Linear(2048, 1024)
 
@@ -59,9 +59,11 @@ class NeuCodec(
         local_ckpt_path: str = None,
         **model_kwargs,
     ):
-        if model_id == "neuphonic/neucodec": 
+        if model_id == "neuphonic/neucodec":
             ignore_keys = ["fc_post_s", "SemanticDecoder"]
         elif model_id == "neuphonic/distill-neucodec":
+            ignore_keys = []
+        else:
             ignore_keys = []
 
         if model_id is not None:
@@ -81,7 +83,8 @@ class NeuCodec(
             ckpt_path = local_ckpt_path
 
         # initialize model
-        model = cls(48_000, 960)
+        decoder_depth = model_kwargs.pop('decoder_depth', 12)
+        model = cls(48_000, 960, decoder_depth=decoder_depth)
 
         # load weights
         state_dict = torch.load(ckpt_path, map_location)
