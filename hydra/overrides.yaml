@@ -1,6 +1,6 @@
-- log_dir=48k
-- wandb_name=48k
-- wandb_project=neucodec_48k
+- log_dir=44k
+- wandb_name=44k
+- wandb_project=neucodec_44k
 - every_n_train_steps=10000
 - train.trainer.devices=2
 - train.trainer.max_steps=1000000

@@ -100,7 +100,7 @@ class CodecLightningModule(pl.LightningModule):
         self.criteria = nn.ModuleDict()
         if cfg.use_mel_loss:
             self.criteria['mel_loss'] = MultiResolutionMelSpectrogramLoss(
-                sample_rate=48000,
+                sample_rate=44100,
                 window_lengths=list(cfg.mel_window_lengths),
             )
         if cfg.use_stft_loss:

@@ -79,7 +79,7 @@ class FSDataset(Dataset):
     def __getitem__(self, idx):
         try:
             wavpath_full = self.filelist[idx]
-            min_audio_length_24k = int(self.min_audio_length / 16000 * 48000)
+            min_audio_length_24k = int(self.min_audio_length / 16000 * 44100)
 
             # Load at native sr using librosa (returns numpy)
             original_wav, sr = librosa.load(wavpath_full, sr=None, mono=True)
@@ -99,9 +99,9 @@ class FSDataset(Dataset):
 
             wav_16k = torch.from_numpy(wav_16k).float()
 
-            # Resample to 48kHz for decoder target
-            if sr != 48000:
-                wav_48k = librosa.resample(original_wav, orig_sr=sr, target_sr=48000)
+            # Resample to 44.1kHz for decoder target
+            if sr != 44100:
+                wav_48k = librosa.resample(original_wav, orig_sr=sr, target_sr=44100)
             else:
                 wav_48k = original_wav
 

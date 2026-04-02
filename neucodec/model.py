@@ -84,7 +84,7 @@ class NeuCodec(
 
         # initialize model
         decoder_depth = model_kwargs.pop('decoder_depth', 12)
-        model = cls(48_000, 960, decoder_depth=decoder_depth)
+        model = cls(44_100, 882, decoder_depth=decoder_depth)
 
         # load weights
         state_dict = torch.load(ckpt_path, map_location)

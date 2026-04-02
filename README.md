@@ -1,6 +1,6 @@
-# NeuCodec 48k
+# NeuCodec 44k
 
-Scaling NeuCodec to 48k.
+Scaling NeuCodec to 44.1k.
 
 ## Training
 
@@ -26,7 +26,7 @@ Dry run,
 
 ```bash
 python3 train.py \
-log_dir=48k \
+log_dir=44k \
 train.trainer.devices=2 \
 train.trainer.max_steps=1000 \
 train.trainer.min_steps=1000 \
@@ -43,9 +43,9 @@ Actual training,
 
 ```bash
 python3 train.py \
-log_dir=48k \
-wandb_name=48k \
-wandb_project=neucodec_48k \
+log_dir=44k \
+wandb_name=44k \
+wandb_project=neucodec_44k \
 every_n_train_steps=5000 \
 train.trainer.devices=2 \
 train.trainer.max_steps=1000000 \
@@ -59,7 +59,7 @@ dataset.val.filelist="real_test.txt"
 
 ## TokenInterpolator — 25 TPS and 12 TPS without changing the codebook
 
-The original NeuCodec runs at **50 TPS** (48kHz / hop_length 960). The `TokenInterpolator` reduces the effective token rate to **25 TPS** or **12 TPS** by skipping tokens at encode time and learning to reconstruct the missing ones at decode time.
+The original NeuCodec runs at **50 TPS** (44.1kHz / hop_length 882). The `TokenInterpolator` reduces the effective token rate to **25 TPS** or **12 TPS** by skipping tokens at encode time and learning to reconstruct the missing ones at decode time.
 
 The codebook is **completely frozen and unchanged**. No codebook retraining is required.
 
@@ -125,6 +125,6 @@ interp.eval()
 # Encode to 25 TPS
 codes_25 = encode_low_rate(neucodec, audio, factor=2)   # [B, 1, T//2]
 
-# Decode back to 48kHz
+# Decode back to 44.1kHz
 audio_out = decode_low_rate(neucodec, interp, codes_25)  # [B, 1, T_audio]
 ```

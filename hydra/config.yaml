@@ -200,9 +200,9 @@ train:
   accumulate_grad_batches: 8
 save_top_k: 5
 every_n_train_steps: 10000
-log_dir: 48k
-wandb_name: 48k
-wandb_project: neucodec_48k
+log_dir: 44k
+wandb_name: 44k
+wandb_project: neucodec_44k
 debug: false
 ckpt: null
 input_dir: null

@@ -41,12 +41,12 @@ from criterions import MultiResolutionMelSpectrogramLoss
 # ---------------------------------------------------------------------------
 
 class AudioDataset(Dataset):
-    def __init__(self, data_dir: str, sample_rate: int = 48_000, segment_secs: float = 3.0):
+    def __init__(self, data_dir: str, sample_rate: int = 44_100, segment_secs: float = 3.0):
         self.files = glob.glob(f"{data_dir}/**/*.wav", recursive=True)
         assert len(self.files) > 0, f"No wav files found in {data_dir}"
         self.sr = sample_rate
         self.segment_len = int(segment_secs * sample_rate)
-        self.segment_len = (self.segment_len // 960) * 960  # align to hop_length
+        self.segment_len = (self.segment_len // 882) * 882  # align to hop_length
 
     def __len__(self):
         return len(self.files)
@@ -126,7 +126,7 @@ def train(args):
 
     # Mel loss (same sample rate and windows as main training)
     mel_loss_fn = MultiResolutionMelSpectrogramLoss(
-        sample_rate=48_000,
+        sample_rate=44_100,
         window_lengths=[128, 512, 2048],
         n_mels=[20, 80, 320],
     ).to(device)
@@ -148,7 +148,7 @@ def train(args):
             if step >= args.steps:
                 break
 
-            audio_gt = batch.squeeze(0).to(device)  # [B, 1, T_audio]  48kHz
+            audio_gt = batch.squeeze(0).to(device)  # [B, 1, T_audio]  44.1kHz
 
             # ----------------------------------------------------------------
             # 1. Get frozen ground-truth 50 TPS embeddings (no grad)
