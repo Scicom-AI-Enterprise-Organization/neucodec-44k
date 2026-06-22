@@ -74,6 +74,13 @@ fi
 if [ "$MOS_OK" -eq 1 ]; then
     "$MOSVENV/bin/python" -c "import utmosv2; print('utmosv2 import OK')" || \
         echo "[bootstrap] WARNING: utmosv2 import failed; MOS eval will be skipped"
+    # Pre-warm UTMOSv2's weights + its facebook/wav2vec2-base SSL backbone into the
+    # SAME cache (/hf_cache) the training-time scorer uses, so the first MOS eval is
+    # instant and works even though training runs HF_HUB_OFFLINE=1.
+    echo "[bootstrap] pre-warming UTMOSv2 model cache ..."
+    HF_HOME=/hf_cache CUDA_VISIBLE_DEVICES="" "$MOSVENV/bin/python" -c \
+        "import utmosv2; utmosv2.create_model(pretrained=True); print('utmosv2 prewarm OK')" || \
+        echo "[bootstrap] WARNING: utmosv2 prewarm failed (first MOS will download on demand)"
 fi
 
 echo "===== [bootstrap] done ====="

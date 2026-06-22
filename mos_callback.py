@@ -73,9 +73,13 @@ class MOSEvalCallback(Callback):
     def _score_dir(self, wav_dir):
         cmd = [self.mos_python, self.mos_script, "--wav-dir", wav_dir,
                "--num-repetitions", str(self.num_repetitions)]
+        # The training run sets HF_HUB_OFFLINE=1, but UTMOSv2 needs to fetch its
+        # SSL backbone (facebook/wav2vec2-base) on first use — let the scorer go
+        # online (it caches into HF_HOME, so later calls are instant).
+        env = {**os.environ, "HF_HUB_OFFLINE": "0", "TRANSFORMERS_OFFLINE": "0"}
         try:
             out = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                 timeout=3600).stdout.decode(errors="replace")
+                                 timeout=3600, env=env).stdout.decode(errors="replace")
         except Exception as e:  # noqa: BLE001
             print(f"[mos] scorer subprocess failed: {e}", flush=True)
             return None
