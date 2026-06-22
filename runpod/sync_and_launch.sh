@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Local driver: rsync this repo to the pod (from runpod/pod.json), bootstrap it,
+# and launch the finetune in the background (survives SSH disconnect).
+#
+#   ./runpod/sync_and_launch.sh            # sync + bootstrap + launch
+#   ./runpod/sync_and_launch.sh sync       # just rsync the code
+#   ./runpod/sync_and_launch.sh bootstrap  # just run bootstrap.sh
+#   ./runpod/sync_and_launch.sh launch     # just (re)launch training
+#   ./runpod/sync_and_launch.sh tail       # tail the training log
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+REPO_LOCAL="$(dirname "$HERE")"
+POD_JSON="$HERE/pod.json"
+[ -f "$POD_JSON" ] || { echo "no $POD_JSON — run launch_pod.py launch first"; exit 1; }
+
+read IP PORT KEY < <(python3 - "$POD_JSON" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+print(m["ip"], m["ssh_port"], m.get("ssh_key", "~/.ssh/id_rsa"))
+PY
+)
+KEY="${KEY/#\~/$HOME}"
+SSH="ssh -p $PORT -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@$IP"
+
+do_sync() {
+    echo "[sync] rsync -> root@$IP:/neucodec-44k"
+    rsync -az --delete \
+        -e "ssh -p $PORT -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+        --exclude '.venv' --exclude '.venv-mos' --exclude '.git' \
+        --exclude 'data' --exclude '44k' --exclude 'wandb' --exclude '__pycache__' \
+        --exclude '*.ckpt' --exclude '*.pt' --exclude '*.zip' --exclude '*_sidon' \
+        "$REPO_LOCAL/" "root@$IP:/neucodec-44k/"
+}
+
+do_bootstrap() { $SSH "bash /neucodec-44k/runpod/bootstrap.sh 2>&1 | tee /neucodec-44k/bootstrap.log"; }
+
+do_launch() {
+    echo "[launch] starting training in background on pod"
+    $SSH "cd /neucodec-44k && nohup bash runpod/run_44k_finetune.sh > /neucodec-44k/train.log 2>&1 & echo started pid \$!"
+}
+
+do_tail() { $SSH "tail -n 80 -f /neucodec-44k/train.log"; }
+
+case "${1:-all}" in
+    sync)      do_sync ;;
+    bootstrap) do_bootstrap ;;
+    launch)    do_launch ;;
+    tail)      do_tail ;;
+    all)       do_sync; do_bootstrap; do_launch ;;
+    *) echo "usage: $0 [sync|bootstrap|launch|tail|all]"; exit 1 ;;
+esac

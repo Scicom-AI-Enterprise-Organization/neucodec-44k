@@ -12,6 +12,19 @@ debug: false
 ckpt: null # infer
 input_dir: null # infer
 output_dir: null # infer
+
+# Per-epoch MOS evaluation (UTMOSv2) on the encode->decode reconstruction.
+mos:
+  enable: true
+  filelist: /data/mos.txt          # held-out files written by prepare_data.py
+  every_n_steps: 20000             # >0: measure MOS every N steps; 0: at epoch end
+  max_samples: 64
+  window_sec: 10.0                  # fixed window per file -> comparable across epochs
+  num_repetitions: 5               # matches the Scicom tts_eval MOS scorer
+  score_gt: true                   # also score ground-truth as a ceiling (val/mos_gt)
+  out_dir: ${log_dir}/mos_eval
+  python: /neucodec-44k/.venv-mos/bin/python   # isolated MOS venv interpreter
+  script: /neucodec-44k/mos_score.py
 hydra:
   output_subdir: hydra
   job:

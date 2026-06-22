@@ -1,3 +1,18 @@
+# Cap CPU thread pools BEFORE numpy/torch import them. On a 224-core box the
+# default (one pool of ~224 threads per process) oversubscribes massively once
+# dataloader workers also spin up — set to 1 so the GPU isn't starved.
+import os
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+
+import faulthandler
+if os.environ.get("FH_EVERY"):
+    # Dump all thread stacks every FH_EVERY seconds — lets us see where training
+    # is stuck when external profilers (py-spy/strace) are blocked by the pod's
+    # ptrace restrictions.
+    faulthandler.dump_traceback_later(float(os.environ["FH_EVERY"]), repeat=True)
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -20,6 +35,7 @@ from neucodec import NeuCodec
 from module import HiFiGANMultiPeriodDiscriminator, SpecDiscriminator
 from criterions import GANLoss, MultiResolutionMelSpectrogramLoss, MultiResolutionSTFTLoss
 from common.schedulers import WarmupLR
+from mos_callback import MOSEvalCallback
 
 torch.serialization.add_safe_globals([
     omegaconf.listconfig.ListConfig,
@@ -47,6 +63,21 @@ class CodecLightningModule(pl.LightningModule):
         self.construct_criteria()
         self.save_hyperparameters()
         self.automatic_optimization = False
+        # Explicit count of TRAINING BATCHES seen. trainer.global_step counts every
+        # optimizer.step() and we step TWO optimizers (gen + disc) per batch, so it
+        # advances 2x per batch. This counter is the true batch number; we log it as
+        # `batch` and make it the wandb x-axis (on_fit_start), and the MOS callback
+        # fires off it so MOS lands on exact batch multiples.
+        self._train_batches = 0
+
+    def on_fit_start(self):
+        if self.trainer.is_global_zero and self.logger is not None and hasattr(self.logger, "experiment"):
+            try:
+                exp = self.logger.experiment
+                exp.define_metric("batch")
+                exp.define_metric("*", step_metric="batch")
+            except Exception as e:  # noqa: BLE001
+                print(f"[wandb] define_metric failed: {e}")
 
     def construct_model(self):
         folder = os.path.dirname(os.path.realpath(__file__))
@@ -223,6 +254,9 @@ class CodecLightningModule(pl.LightningModule):
         return output_dict
 
     def training_step(self, batch, batch_idx):
+        self._train_batches += 1
+        if self._train_batches <= 3:
+            print(f"[stepcheck] batch={self._train_batches} trainer.global_step={self.global_step}")
         output = self(batch)
 
         gen_opt, disc_opt = self.optimizers()
@@ -302,6 +336,12 @@ class CodecLightningModule(pl.LightningModule):
                 batch_size=self.cfg.dataset.train.batch_size,
                 sync_dist=True
             )
+            # True-batch x-axis for wandb (see on_fit_start define_metric).
+            self.log(
+                "batch", float(self._train_batches),
+                on_step=True, on_epoch=False, logger=True,
+                batch_size=self.cfg.dataset.train.batch_size, sync_dist=False,
+            )
 
     def validation_step(self, batch, batch_idx):
         pass
@@ -350,6 +390,12 @@ def train(cfg):
 
     lr_monitor = LearningRateMonitor(logging_interval='step')
     callbacks = [checkpoint_callback, lr_monitor]
+
+    # Per-epoch MOS (UTMOSv2) on the encode->decode reconstruction. Rank-0 only;
+    # runs the scorer in an isolated venv. See mos_callback.py / config.mos.
+    if cfg.get('mos') is not None and cfg.mos.get('enable', False):
+        callbacks.append(MOSEvalCallback(cfg))
+        print("MOS eval callback enabled (per epoch)")
 
     datamodule = DataModule(cfg)
     lightning_module = CodecLightningModule(cfg)
