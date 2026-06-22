@@ -2,6 +2,34 @@
 
 Scaling NeuCodec to 44.1k.
 
+## Load from Hugging Face
+
+The finetuned 44.1 kHz decoder weights live at
+[`Scicom-intl/neucodec-44k`](https://huggingface.co/Scicom-intl/neucodec-44k)
+(private — authenticate with `huggingface-cli login` or an `HF_TOKEN` env var first).
+
+```python
+import soundfile as sf
+from neucodec import NeuCodec
+
+# decoder_depth=12 matches the finetuned decoder; pass token=... for the private repo
+model = NeuCodec._from_pretrained(model_id="Scicom-intl/neucodec-44k", decoder_depth=12)
+model = model.eval().cuda()
+
+# encode: any audio file (resampled to 16 kHz internally for the frozen encoder)
+codes = model.encode_code("input.wav")     # [1, 1, T]  FSQ codes @ 50 tokens/sec
+
+# decode: codes -> 44.1 kHz waveform
+wav = model.decode_code(codes)              # [1, 1, T_audio]
+sf.write("recon_44k.wav", wav.squeeze().cpu().numpy(), model.sample_rate)  # 44100
+```
+
+Notes:
+- The encoder + FSQ codebook are unchanged from base NeuCodec — only the decoder
+  was finetuned to reconstruct 44.1 kHz, so codes are interchangeable with the base
+  model. `model.sample_rate == 44100`.
+- Re-push a newer checkpoint with `python push_to_hf.py --ckpt 44k/last.ckpt --repo Scicom-intl/neucodec-44k`.
+
 ## Training
 
 1. Use uv,
