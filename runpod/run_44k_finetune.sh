@@ -29,7 +29,7 @@ mkdir -p /data /hf_cache "$REPO/44k"
 EPOCHS=${EPOCHS:-10}
 MAX_STEPS=${MAX_STEPS:--1}          # >0 caps by step
 MAX_TIME=${MAX_TIME:-}              # "DD:HH:MM:SS" wall-clock cap (best for a fixed budget)
-MOS_EVERY=${MOS_EVERY:-20000}       # MOS every N steps (0 = at epoch end)
+MOS_EVERY=${MOS_EVERY:-10000}       # MOS every N true batches (0 = at epoch end)
 BATCH=${BATCH:-8}
 NUM_WORKERS=${NUM_WORKERS:-16}   # with 1 thread/worker the pipeline does ~9k batches/s; 16 is plenty
 ACCUM=${ACCUM:-1}

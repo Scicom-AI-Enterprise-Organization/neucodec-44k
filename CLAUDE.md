@@ -131,10 +131,10 @@ At the end of **every epoch** we measure predicted naturalness MOS with **UTMOSv
 mirroring `…/GPUPlatform/gateway/gateway/training/tts/tts_eval.py`
 (`utmosv2.create_model(pretrained=True).predict(input_path=…, num_repetitions=5)`).
 
-Cadence: `mos.every_n_steps>0` measures MOS every N steps (default 20000 — one
-epoch is ~45k steps at batch 48, far too coarse for per-epoch); `==0` falls back to
-epoch-end. The callback fires from `on_train_batch_end` (step mode) or
-`on_train_epoch_end` (epoch mode).
+Cadence: `mos.every_n_steps>0` measures MOS every N **true batches** (default 10000;
+one epoch is ~45k batches at batch 48, so ~4–5 MOS points/epoch); `==0` falls back
+to epoch-end. The callback fires from `on_train_batch_end` (counting true batches via
+`pl_module._train_batches`, not the doubled `global_step`) or `on_train_epoch_end`.
 
 - `mos_callback.MOSEvalCallback` (registered in `train.py` when `cfg.mos.enable`):
   on rank 0, takes `mos.txt`, runs each file through the **current** model
