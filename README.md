@@ -30,6 +30,24 @@ Notes:
   model. `model.sample_rate == 44100`.
 - Re-push a newer checkpoint with `python push_to_hf.py --ckpt 44k/last.ckpt --repo Scicom-intl/neucodec-44k`.
 
+## Decoder depth & trainable parameters
+
+Only the decoder (`generator.backbone` + `head`) and the two GAN discriminators
+train; the w2v-BERT semantic encoder, acoustic encoder and the FSQ codebook path
+(~637M params) stay frozen for every depth. The decoder-depth ablation (12 vs 16
+vs 20 transformer layers, each finetuned to 50k batches):
+
+| decoder depth | generator (trainable) | + discriminators (MPD+Spec) | **total trainable** | frozen | total params |
+|---|---|---|---|---|---|
+| 12 (base)     | 187.2M | 28.4M | **215.6M** | ~637M | ~853M |
+| 16            | 237.5M | 28.4M | **265.9M** | ~637M | ~903M |
+| 20            | 287.9M | 28.4M | **316.3M** | ~637M | ~953M |
+
+Each +4 layers adds ~50M trainable params (~12.6M/layer); the discriminators
+(MPD 10.28M + Spec 18.10M) are fixed. Train a given depth with
+`model.codec_decoder.depth=N ckpt=extended_N.pt` (see `make_extended.py` to warm-init
+the new layers by replicating the base last layer).
+
 ## Training
 
 1. Use uv,
