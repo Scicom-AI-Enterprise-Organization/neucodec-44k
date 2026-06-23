@@ -30,10 +30,15 @@ EPOCHS=${EPOCHS:-10}
 MAX_STEPS=${MAX_STEPS:--1}          # >0 caps by step
 MAX_TIME=${MAX_TIME:-}              # "DD:HH:MM:SS" wall-clock cap (best for a fixed budget)
 MOS_EVERY=${MOS_EVERY:-10000}       # MOS every N true batches (0 = at epoch end)
+MAX_BATCHES=${MAX_BATCHES:-0}       # >0: hard stop after N true batches (ablation cutoff)
 BATCH=${BATCH:-8}
 NUM_WORKERS=${NUM_WORKERS:-16}   # with 1 thread/worker the pipeline does ~9k batches/s; 16 is plenty
 ACCUM=${ACCUM:-1}
 SOURCES=${SOURCES:-malay,sg,commonvoice}
+DEPTH=${DEPTH:-12}                  # decoder transformer depth (12 base; 16/20 ablation)
+CKPT=${CKPT:-null}                  # init weights (null=base neucodec; or extended_N.pt)
+WANDB_NAME=${WANDB_NAME:-44k}
+LOG_DIR=${LOG_DIR:-$REPO/44k}
 
 # Reduce CUDA fragmentation so large batches don't OOM on transient peaks.
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
@@ -63,12 +68,14 @@ echo "[run] train files: $(wc -l < /data/train.txt)  | mos files: $(wc -l < /dat
 # ---- 2. finetune: decoder-only -> 44.1kHz, FSQ codebook frozen, per-epoch MOS
 echo "===== [run] launching finetune: ${EPOCHS} epochs, batch ${BATCH}x${ACCUM}, 1x H100 ====="
 exec "$VENV/bin/python" train.py \
-    log_dir="$REPO/44k" \
-    wandb_name=44k \
+    log_dir="$LOG_DIR" \
+    wandb_name="$WANDB_NAME" \
     wandb_project=neucodec_44k \
     every_n_train_steps=5000 \
     save_top_k=3 \
-    ckpt=null \
+    ckpt="$CKPT" \
+    model.codec_decoder.depth="$DEPTH" \
+    train.max_batches="$MAX_BATCHES" \
     train.trainer.devices=1 \
     ~train.trainer.min_steps \
     $LIMIT_OVERRIDES \

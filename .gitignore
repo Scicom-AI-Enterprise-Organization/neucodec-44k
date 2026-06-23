@@ -171,7 +171,7 @@ cython_debug/
 /.cache
 /__pycache__
 
-*.wav
+
 *.pth
 *.pt
 *.pt.gz
@@ -201,3 +201,6 @@ sarulab-speech
 # RunPod ephemeral pod state
 runpod/pod.json
 runpod/__pycache__/
+
+# local HF download cache
+.hf_cache/

@@ -255,8 +255,11 @@ class CodecLightningModule(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         self._train_batches += 1
-        if self._train_batches <= 3:
-            print(f"[stepcheck] batch={self._train_batches} trainer.global_step={self.global_step}")
+        # Hard stop at an exact TRUE-BATCH count (trainer.global_step double-counts
+        # the two optimizers, so it's not a reliable cutoff for the ablation).
+        max_batches = self.cfg.train.get('max_batches', 0)
+        if max_batches and self._train_batches >= max_batches:
+            self.trainer.should_stop = True
         output = self(batch)
 
         gen_opt, disc_opt = self.optimizers()

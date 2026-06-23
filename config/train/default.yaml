@@ -23,6 +23,9 @@ use_mel_loss: true
 use_feat_match_loss: true
 use_stft_loss: true
 
+# Stop after this many TRUE training batches (0 = disabled, use epoch/step limits).
+max_batches: 0
+
 # multi-resolution mel loss window sizes (n_mels defaults pair up in mel_loss.py)
 mel_window_lengths: [32, 64, 128, 256, 512, 1024, 2048]
 
