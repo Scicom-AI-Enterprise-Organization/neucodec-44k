@@ -15,10 +15,8 @@ set -a; [ -f "$REPO/.env" ] && source "$REPO/.env"; set +a
 export HF_HOME=/hf_cache
 export HF_XET_HIGH_PERFORMANCE=1   # datasets are Xet-backed
 export TOKENIZERS_PARALLELISM=false
-# Base model + w2v-bert are cached after the first run; go offline so the 32
-# dataloader workers don't each fire HF HEAD requests for the feature extractor.
-export HF_HUB_OFFLINE=1
-export TRANSFORMERS_OFFLINE=1
+# NOTE: do NOT set HF_HUB_OFFLINE here — a fresh pod must download datasets +
+# w2v-bert online first. (Workers re-checking the HF cache is just log noise.)
 # Critical on this 224-core box: without this, each dataloader worker's torch
 # CPU ops spawn ~224 threads -> workers x 224 threads oversubscribe and hang.
 export OMP_NUM_THREADS=1

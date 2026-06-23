@@ -11,7 +11,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_LOCAL="$(dirname "$HERE")"
-POD_JSON="$HERE/pod.json"
+POD_JSON="${POD_JSON:-$HERE/pod.json}"
 [ -f "$POD_JSON" ] || { echo "no $POD_JSON — run launch_pod.py launch first"; exit 1; }
 
 read IP PORT KEY < <(python3 - "$POD_JSON" <<'PY'
@@ -28,8 +28,9 @@ do_sync() {
     rsync -az --delete \
         -e "ssh -p $PORT -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
         --exclude '.venv' --exclude '.venv-mos' --exclude '.git' \
-        --exclude 'data' --exclude '44k' --exclude 'wandb' --exclude '__pycache__' \
-        --exclude '*.ckpt' --exclude '*.pt' --exclude '*.zip' --exclude '*_sidon' \
+        --exclude 'data' --exclude '44k' --exclude '44k_*' --exclude 'wandb' --exclude '__pycache__' \
+        --exclude '.hf_cache' --exclude 'audio' --exclude 'runpod/pod*.json' \
+        --exclude '*.ckpt' --exclude '*.pt' --exclude '*.bin' --exclude '*.zip' --exclude '*_sidon' \
         "$REPO_LOCAL/" "root@$IP:/neucodec-44k/"
 }
 
