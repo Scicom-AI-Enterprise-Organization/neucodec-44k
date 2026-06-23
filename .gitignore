@@ -204,3 +204,5 @@ runpod/__pycache__/
 
 # local HF download cache
 .hf_cache/
+
+runpod/pod*.json
