@@ -56,8 +56,18 @@ SOURCES = {
         "malaysia-ai/Multilingual-TTS", "standalone",
         ["commonvoice22_sidon-*.zip"], None,
     ),
+    # cartoons: 48k stereo mp3, ~4.9GB/zip -> SUBSET only (first few part-0 zips).
+    "cartoons": (
+        "malaysia-ai/malaysian-cartoons-youtube", "standalone",
+        [f"cartoons-part-0-{i}.zip" for i in range(5)], None,
+    ),
 }
 DEFAULT_ORDER = ["malay", "sg", "commonvoice"]  # biggest-first
+
+# EARS: 48k anechoic fullband, most diverse (emotional/conversational/reading).
+# Distributed as per-speaker zips on GitHub releases (p001..p107). Subset by count.
+EARS_BASE = "https://github.com/facebookresearch/ears_dataset/releases/download/dataset"
+EARS_SPEAKERS = 30  # of 107 (~30GB); diverse enough, fits the disk budget
 
 # HF datasets-format audio (real human studio speech @ 48k, not synthetic TTS).
 # name -> (repo_id, config, split). Exported to /data/<name>/*.wav.
@@ -114,7 +124,8 @@ def extract_standalone(archive_dir: Path, out_root: Path) -> None:
     """Each CommonVoice zip carries its own top folder; unzip into out_root then
     delete the zip to keep disk flat."""
     out_root.mkdir(parents=True, exist_ok=True)
-    zips = sorted(archive_dir.glob("commonvoice22_sidon-*.zip"))
+    # archive_dir holds only the patterns we downloaded, so glob all zips.
+    zips = sorted(archive_dir.glob("*.zip"))
     for i, z in enumerate(zips, 1):
         log(f"[unzip] ({i}/{len(zips)}) {z.name}  free={disk_free_gb(str(out_root)):.0f}GB")
         rc = subprocess.run(["unzip", "-o", "-q", str(z), "-d", str(out_root)]).returncode
@@ -150,8 +161,10 @@ def export_hf_dataset(name: str, data_root: Path, token: str | None) -> None:
         return
     out_root.mkdir(parents=True, exist_ok=True)
     from datasets import load_dataset
-    log(f"[hf-ds] streaming {repo}:{config}:{split} -> {out_root}")
-    ds = load_dataset(repo, config, split=split, streaming=True, token=token)
+    log(f"[hf-ds] loading {repo}:{config}:{split} -> {out_root}")
+    # non-streaming: download parquet to HF cache then iterate (streaming stalled
+    # on this network). Small datasets (Expresso ~6GB) so the cache is fine.
+    ds = load_dataset(repo, config, split=split, token=token)
     n = 0
     for i, row in enumerate(ds):
         a = row.get("audio")
@@ -166,6 +179,29 @@ def export_hf_dataset(name: str, data_root: Path, token: str | None) -> None:
             log(f"[hf-ds]   {name}: {n} files")
     done.write_text("ok\n")
     log(f"[done] {name}: {n} wavs -> {out_root}  free={disk_free_gb(str(data_root)):.0f}GB")
+
+
+def download_ears(data_root: Path, n_speakers: int = EARS_SPEAKERS) -> None:
+    """EARS (48k anechoic) is per-speaker zips on GitHub releases. Pull a subset
+    of speakers, unzip each into /data/ears, delete the zip."""
+    out_root = data_root / "ears"
+    done = out_root / ".done"
+    if done.exists():
+        log(f"[skip] ears already extracted ({out_root})")
+        return
+    out_root.mkdir(parents=True, exist_ok=True)
+    for i in range(1, n_speakers + 1):
+        spk = f"p{i:03d}"
+        z = out_root / f"{spk}.zip"
+        log(f"[ears] ({i}/{n_speakers}) {spk}  free={disk_free_gb(str(out_root)):.0f}GB")
+        rc = subprocess.run(["curl", "-sSL", f"{EARS_BASE}/{spk}.zip", "-o", str(z)]).returncode
+        if rc != 0 or not z.exists():
+            log(f"[ears] WARNING download failed for {spk}")
+            continue
+        subprocess.run(["unzip", "-o", "-q", str(z), "-d", str(out_root)])
+        z.unlink(missing_ok=True)
+    done.write_text("ok\n")
+    log(f"[done] ears: {n_speakers} speakers -> {out_root}  free={disk_free_gb(str(data_root)):.0f}GB")
 
 
 def process_source(name: str, data_root: Path, token: str | None) -> None:
@@ -265,8 +301,11 @@ def main() -> None:
                 process_source(name, data_root, token)
             elif name in HF_DATASETS:
                 export_hf_dataset(name, data_root, token)
+            elif name == "ears":
+                download_ears(data_root)
             else:
-                sys.exit(f"unknown source {name!r}; choose from {list(SOURCES) + list(HF_DATASETS)}")
+                sys.exit(f"unknown source {name!r}; choose from "
+                         f"{list(SOURCES) + list(HF_DATASETS) + ['ears']}")
 
     build_filelists(data_root, a.mos_samples, a.test_samples, a.min_duration, a.seed)
     log("\n[prepare_data] complete.")
