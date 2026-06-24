@@ -160,18 +160,31 @@ def export_hf_dataset(name: str, data_root: Path, token: str | None) -> None:
         log(f"[skip] {name} already exported ({out_root})")
         return
     out_root.mkdir(parents=True, exist_ok=True)
-    from datasets import load_dataset
+    import io
+    from datasets import load_dataset, Audio
     log(f"[hf-ds] loading {repo}:{config}:{split} -> {out_root}")
-    # non-streaming: download parquet to HF cache then iterate (streaming stalled
-    # on this network). Small datasets (Expresso ~6GB) so the cache is fine.
+    # non-streaming: download parquet to HF cache then iterate.
     ds = load_dataset(repo, config, split=split, token=token)
+    # decode=False -> raw audio bytes; we decode with soundfile ourselves, so we
+    # don't need `torchcodec` (which newer `datasets` requires for auto-decoding).
+    ds = ds.cast_column("audio", Audio(decode=False))
     n = 0
     for i, row in enumerate(ds):
-        a = row.get("audio")
-        if not a or a.get("array") is None:
+        a = row.get("audio") or {}
+        b = a.get("bytes")
+        if b is None and a.get("path"):
+            try:
+                with open(a["path"], "rb") as fh:
+                    b = fh.read()
+            except Exception:
+                b = None
+        if not b:
             continue
         try:
-            sf.write(str(out_root / f"{i:06d}.wav"), a["array"], int(a["sampling_rate"]), subtype="PCM_16")
+            arr, sr = sf.read(io.BytesIO(b), dtype="float32", always_2d=False)
+            if getattr(arr, "ndim", 1) > 1:
+                arr = arr.mean(axis=1)
+            sf.write(str(out_root / f"{i:06d}.wav"), arr, int(sr), subtype="PCM_16")
             n += 1
         except Exception as e:  # noqa: BLE001
             log(f"[hf-ds] skip row {i}: {e}")
