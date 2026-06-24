@@ -18,11 +18,13 @@ from neucodec import NeuCodec
 
 AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio")
 REPO = os.environ.get("NEUCODEC_REPO", "Scicom-intl/neucodec-44k")
+DEPTH = int(os.environ.get("NEUCODEC_DEPTH", "12"))   # 12/16/20 must match the repo
+TAG = os.environ.get("RECON_TAG", f"_recon44k_d{DEPTH}")
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"[infer] loading {REPO} (decoder_depth=12) on {device} …")
+print(f"[infer] loading {REPO} (decoder_depth={DEPTH}) on {device} …")
 model = NeuCodec._from_pretrained(
-    model_id=REPO, decoder_depth=12, token=os.environ.get("HF_TOKEN")
+    model_id=REPO, decoder_depth=DEPTH, token=os.environ.get("HF_TOKEN")
 ).eval().to(device)
 sr_out = model.sample_rate
 print(f"[infer] model sample_rate = {sr_out}")
@@ -30,7 +32,7 @@ print(f"[infer] model sample_rate = {sr_out}")
 files = sorted(
     f for f in glob.glob(os.path.join(AUDIO_DIR, "*"))
     if f.lower().endswith((".mp3", ".wav", ".flac", ".m4a", ".ogg"))
-    and "_recon44k" not in f
+    and "_recon44k" not in os.path.basename(f)
 )
 print(f"[infer] {len(files)} input file(s)")
 
@@ -41,7 +43,7 @@ for f in files:
     with torch.no_grad():
         codes = model.encode_code(x)
         wav = model.decode_code(codes).squeeze().detach().cpu().float().numpy()
-    out = os.path.splitext(f)[0] + "_recon44k.wav"
+    out = os.path.splitext(f)[0] + TAG + ".wav"
     sf.write(out, wav, sr_out)
     info = sf.info(out)
     print(f"[infer] {os.path.basename(f)} -> {os.path.basename(out)} "

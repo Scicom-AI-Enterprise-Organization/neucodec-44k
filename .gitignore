@@ -206,3 +206,5 @@ runpod/__pycache__/
 .hf_cache/
 
 runpod/pod*.json
+
+scicom
