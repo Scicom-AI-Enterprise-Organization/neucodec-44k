@@ -47,7 +47,7 @@ uv pip install --python "$VENV/bin/python" \
     numpy "numba>=0.61" "llvmlite>=0.44" \
     "pytorch-lightning>=2.2" hydra-core omegaconf \
     "transformers>=4.44.2" einops librosa soundfile soxr scipy wandb tqdm mutagen \
-    "huggingface_hub>=0.34" hf_transfer hf_xet \
+    "huggingface_hub>=0.34" hf_transfer hf_xet datasets \
     "vector-quantize-pytorch>=1.17.8" torchtune "local_attention>=1.11.1"
 
 echo "[bootstrap] training venv torch/CUDA check:"

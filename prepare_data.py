@@ -59,6 +59,13 @@ SOURCES = {
 }
 DEFAULT_ORDER = ["malay", "sg", "commonvoice"]  # biggest-first
 
+# HF datasets-format audio (real human studio speech @ 48k, not synthetic TTS).
+# name -> (repo_id, config, split). Exported to /data/<name>/*.wav.
+HF_DATASETS = {
+    "expresso_read": ("ylacombe/expresso", "read", "train"),            # 11h expressive read
+    "expresso_conv": ("nytopop/expresso-conversational", "conversational", "train"),  # 30h improvised dialogue
+}
+
 
 def log(m: str) -> None:
     print(m, flush=True)
@@ -129,6 +136,36 @@ def extract_split(archive_dir: Path, main_archive: str, out_root: Path) -> None:
     for part in archive_dir.glob(main_archive.split(".")[0] + ".z*"):
         part.unlink(missing_ok=True)
     (archive_dir / main_archive).unlink(missing_ok=True)
+
+
+def export_hf_dataset(name: str, data_root: Path, token: str | None) -> None:
+    """Stream an HF datasets-format audio dataset and dump each clip as a wav
+    under /data/<name>/ so it merges into the same filelist as the zip sources."""
+    import soundfile as sf
+    repo, config, split = HF_DATASETS[name]
+    out_root = data_root / name
+    done = out_root / ".done"
+    if done.exists():
+        log(f"[skip] {name} already exported ({out_root})")
+        return
+    out_root.mkdir(parents=True, exist_ok=True)
+    from datasets import load_dataset
+    log(f"[hf-ds] streaming {repo}:{config}:{split} -> {out_root}")
+    ds = load_dataset(repo, config, split=split, streaming=True, token=token)
+    n = 0
+    for i, row in enumerate(ds):
+        a = row.get("audio")
+        if not a or a.get("array") is None:
+            continue
+        try:
+            sf.write(str(out_root / f"{i:06d}.wav"), a["array"], int(a["sampling_rate"]), subtype="PCM_16")
+            n += 1
+        except Exception as e:  # noqa: BLE001
+            log(f"[hf-ds] skip row {i}: {e}")
+        if n and n % 2000 == 0:
+            log(f"[hf-ds]   {name}: {n} files")
+    done.write_text("ok\n")
+    log(f"[done] {name}: {n} wavs -> {out_root}  free={disk_free_gb(str(data_root)):.0f}GB")
 
 
 def process_source(name: str, data_root: Path, token: str | None) -> None:
@@ -223,10 +260,13 @@ def main() -> None:
     token = hf_login()
     if not a.skip_download:
         for name in [s.strip() for s in a.sources.split(",") if s.strip()]:
-            if name not in SOURCES:
-                sys.exit(f"unknown source {name!r}; choose from {list(SOURCES)}")
             log(f"\n===== source: {name}  (free={disk_free_gb(str(data_root)):.0f}GB) =====")
-            process_source(name, data_root, token)
+            if name in SOURCES:
+                process_source(name, data_root, token)
+            elif name in HF_DATASETS:
+                export_hf_dataset(name, data_root, token)
+            else:
+                sys.exit(f"unknown source {name!r}; choose from {list(SOURCES) + list(HF_DATASETS)}")
 
     build_filelists(data_root, a.mos_samples, a.test_samples, a.min_duration, a.seed)
     log("\n[prepare_data] complete.")
