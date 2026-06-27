@@ -61,6 +61,11 @@ SOURCES = {
         "malaysia-ai/malaysian-cartoons-youtube", "standalone",
         [f"cartoons-part-0-{i}.zip" for i in range(5)], None,
     ),
+    # movie: 48k Malay movie dialogue (verified). Only ~1.8GB total -> take it all.
+    "movie": (
+        "malaysia-ai/malaysian-movie-youtube", "standalone",
+        ["part-*.zip"], None,
+    ),
 }
 DEFAULT_ORDER = ["malay", "sg", "commonvoice"]  # biggest-first
 
