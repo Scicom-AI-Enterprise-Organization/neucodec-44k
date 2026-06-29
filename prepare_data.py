@@ -75,11 +75,30 @@ EARS_BASE = "https://github.com/facebookresearch/ears_dataset/releases/download/
 EARS_SPEAKERS = 30  # of 107 (~30GB); diverse enough, fits the disk budget
 
 # HF datasets-format audio (real human studio speech @ 48k, not synthetic TTS).
-# name -> (repo_id, config, split). Exported to /data/<name>/*.wav.
+# name -> (repo_id, config, split). Exported to /data/<name>/*.wav (native SR kept).
 HF_DATASETS = {
-    "expresso_read": ("ylacombe/expresso", "read", "train"),            # 11h expressive read
-    "expresso_conv": ("nytopop/expresso-conversational", "conversational", "train"),  # 30h improvised dialogue
+    "expresso_read": ("ylacombe/expresso", "read", "train"),            # 11h expressive read, 48k
+    "expresso_conv": ("nytopop/expresso-conversational", "conversational", "train"),  # 30h improvised dialogue, 48k
 }
+
+# BibleTTS (OpenSLR SLR129): 48 kHz/24-bit FLAC, professional studio (close-mic,
+# no bg-noise/echo), CC BY-SA 4.0 (commercial OK), read, 10 Sub-Saharan African
+# langs as per-language .tgz (15-21 GB each). NOTE: there is NO `masakhane/bibletts`
+# on HF; the HF community copies are fragmented / often 22.05 kHz, so we pull the
+# genuine 48 kHz originals straight from OpenSLR (open — no HF token needed).
+BIBLETTS_BASE = "https://www.openslr.org/resources/129"
+BIBLETTS_ALL = ["akuapem-twi", "asante-twi", "ewe", "hausa", "kikuyu",
+                "lingala", "luganda", "luo", "chichewa", "yoruba"]
+BIBLETTS_LANGS = ["hausa", "yoruba"]  # subset (each ~15-21 GB); plenty of clean 48k speech
+
+# scale44k: the verified >=44 kHz datasets (SR-probed in datasets_ge_44k.md) that
+# Malaysia-AI mirrored into ONE repo as {name}*audio.zip. The manifest lists one
+# zip filename per line and sits next to this script. Each zip is downloaded,
+# extracted into /data/scale44k/<stem>/, then deleted to bound disk; per-zip .done
+# sentinels make it resumable. This is the "scale more dataset" source (336 zips,
+# ~192 GB, 48 kHz + 44.1 kHz human speech across many languages).
+SCALE44K_REPO = "malaysia-ai/Multilingual-TTS"
+SCALE44K_MANIFEST = str(Path(__file__).resolve().parent / "runpod" / "scale44k_zips.txt")
 
 
 def log(m: str) -> None:
@@ -222,6 +241,81 @@ def download_ears(data_root: Path, n_speakers: int = EARS_SPEAKERS) -> None:
     log(f"[done] ears: {n_speakers} speakers -> {out_root}  free={disk_free_gb(str(data_root)):.0f}GB")
 
 
+def download_bibletts(data_root: Path, langs: list[str] = BIBLETTS_LANGS) -> None:
+    """BibleTTS (OpenSLR SLR129): per-language .tgz of 48 kHz/24-bit FLAC. Download
+    a subset of languages, extract into /data/bibletts/, delete the tarball. Each
+    .tgz carries its own top folder, so audio lands at /data/bibletts/<lang>/...
+    and merges into the same .flac filelist as the other sources."""
+    out_root = data_root / "bibletts"
+    done = out_root / ".done"
+    if done.exists():
+        log(f"[skip] bibletts already extracted ({out_root})")
+        return
+    out_root.mkdir(parents=True, exist_ok=True)
+    for i, lang in enumerate(langs, 1):
+        tgz = out_root / f"{lang}.tgz"
+        url = f"{BIBLETTS_BASE}/{lang}.tgz"
+        log(f"[bibletts] ({i}/{len(langs)}) {lang}  free={disk_free_gb(str(out_root)):.0f}GB")
+        rc = subprocess.run(["curl", "-sSL", url, "-o", str(tgz)]).returncode
+        if rc != 0 or not tgz.exists():
+            log(f"[bibletts] WARNING download failed for {lang}")
+            continue
+        rc = subprocess.run(["tar", "-xzf", str(tgz), "-C", str(out_root)]).returncode
+        if rc != 0:
+            log(f"[bibletts] WARNING extract failed for {lang}")
+        tgz.unlink(missing_ok=True)
+    done.write_text("ok\n")
+    log(f"[done] bibletts: {langs} -> {out_root}  free={disk_free_gb(str(data_root)):.0f}GB")
+
+
+def download_scale44k(data_root: Path, token: str | None, manifest: str = SCALE44K_MANIFEST) -> None:
+    """Download the verified >=44 kHz audio zips listed in the manifest from
+    malaysia-ai/Multilingual-TTS, extract each into /data/scale44k/<stem>/, then
+    delete the zip to bound disk. Resumable per-zip via .done sentinels; a bad zip
+    is skipped (logged) so one failure never aborts the whole scale-up."""
+    from huggingface_hub import hf_hub_download
+    out_root = data_root / "scale44k"
+    out_root.mkdir(parents=True, exist_ok=True)
+    done = out_root / ".done"
+    if done.exists():
+        log(f"[skip] scale44k already done ({out_root})")
+        return
+    if not os.path.exists(manifest):
+        sys.exit(f"[scale44k] manifest not found: {manifest}")
+    names = [l.strip() for l in open(manifest) if l.strip() and not l.startswith("#")]
+    log(f"[scale44k] {len(names)} zips to fetch from {SCALE44K_REPO}")
+    tmp = out_root / "_dl"
+    for i, zipname in enumerate(names, 1):
+        stem = zipname[:-4] if zipname.lower().endswith(".zip") else zipname
+        for suf in ("_audio", "-audio"):
+            if stem.endswith(suf):
+                stem = stem[: -len(suf)]
+        sub = out_root / stem
+        if (sub / ".done").exists():
+            continue
+        sub.mkdir(parents=True, exist_ok=True)
+        tmp.mkdir(parents=True, exist_ok=True)
+        try:
+            p = hf_hub_download(repo_id=SCALE44K_REPO, filename=zipname, repo_type="dataset",
+                                local_dir=str(tmp), token=token)
+        except Exception as e:  # noqa: BLE001
+            log(f"[scale44k] ({i}/{len(names)}) DOWNLOAD FAIL {zipname}: {e}")
+            continue
+        rc = subprocess.run(["unzip", "-o", "-q", p, "-d", str(sub)]).returncode
+        if rc != 0:
+            log(f"[scale44k] ({i}/{len(names)}) unzip rc={rc} {zipname}")
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+        (sub / ".done").write_text("ok\n")
+        if i % 20 == 0 or i == len(names):
+            log(f"[scale44k] ({i}/{len(names)}) {stem}  free={disk_free_gb(str(out_root)):.0f}GB")
+    shutil.rmtree(tmp, ignore_errors=True)
+    done.write_text("ok\n")
+    log(f"[done] scale44k: {len(names)} zips -> {out_root}  free={disk_free_gb(str(data_root)):.0f}GB")
+
+
 def process_source(name: str, data_root: Path, token: str | None) -> None:
     repo, kind, patterns, main = SOURCES[name]
     out_root = data_root / name
@@ -321,9 +415,13 @@ def main() -> None:
                 export_hf_dataset(name, data_root, token)
             elif name == "ears":
                 download_ears(data_root)
+            elif name == "bibletts":
+                download_bibletts(data_root)
+            elif name == "scale44k":
+                download_scale44k(data_root, token)
             else:
                 sys.exit(f"unknown source {name!r}; choose from "
-                         f"{list(SOURCES) + list(HF_DATASETS) + ['ears']}")
+                         f"{list(SOURCES) + list(HF_DATASETS) + ['ears', 'bibletts', 'scale44k']}")
 
     build_filelists(data_root, a.mos_samples, a.test_samples, a.min_duration, a.seed)
     log("\n[prepare_data] complete.")

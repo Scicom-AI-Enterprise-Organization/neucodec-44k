@@ -146,8 +146,11 @@ def cmd_launch(a: argparse.Namespace) -> None:
     }
     if a.allowed_cuda:
         body["allowedCudaVersions"] = [v.strip() for v in a.allowed_cuda.split(",") if v.strip()]
+    if getattr(a, "country_codes", ""):
+        body["countryCodes"] = [c.strip().upper() for c in a.country_codes.split(",") if c.strip()]
     print(f"[launch] creating pod {a.name!r}: {a.gpu_count}x {a.gpu}, "
-          f"{a.disk_gb}GB container disk, cloud={a.cloud_type}, image={a.image}")
+          f"{a.disk_gb}GB container disk, cloud={a.cloud_type}, image={a.image}"
+          + (f", countryCodes={body.get('countryCodes')}" if body.get('countryCodes') else ""))
     resp = api("POST", "/pods", body)
     pod_id = resp.get("id")
     if not pod_id:
@@ -234,6 +237,9 @@ def main() -> None:
     p.add_argument("--image", default=DEFAULT_IMAGE)
     p.add_argument("--pubkey", default="~/.ssh/id_rsa.pub")
     p.add_argument("--allowed-cuda", default="", help="comma list, e.g. 12.8")
+    p.add_argument("--country-codes", default="",
+                   help="comma list of ISO country codes to restrict datacenters, e.g. US "
+                        "(fast HF/dataset downloads — avoid far-region pods)")
     p.add_argument("--timeout", type=int, default=900)
     p.add_argument("--no-wait", action="store_true")
     p.set_defaults(func=cmd_launch)

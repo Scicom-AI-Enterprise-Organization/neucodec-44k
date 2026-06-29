@@ -36,6 +36,9 @@ def main():
     ap.add_argument("--repo", required=True)
     ap.add_argument("--code-dir", default=os.path.dirname(os.path.abspath(__file__)))
     ap.add_argument("--public", action="store_true", help="default is a PRIVATE repo")
+    ap.add_argument("--full", action="store_true",
+                    help="ALSO upload the raw PL checkpoint (optimizer states + lr "
+                         "schedulers) as last.ckpt, so the repo can resume training")
     a = ap.parse_args()
 
     token = os.environ.get("HF_TOKEN")
@@ -53,6 +56,13 @@ def main():
     api.upload_file(path_or_fileobj=out_bin, path_in_repo="pytorch_model.bin",
                     repo_id=a.repo, repo_type="model")
     print(f"[hf] done (weights only) → https://huggingface.co/{a.repo}")
+
+    if a.full:
+        print("[hf] uploading FULL checkpoint (last.ckpt, optimizer states + lr schedulers) …")
+        api.upload_file(path_or_fileobj=a.ckpt, path_in_repo="last.ckpt",
+                        repo_id=a.repo, repo_type="model",
+                        commit_message=f"full resume ckpt from {os.path.basename(a.ckpt)}")
+        print(f"[hf] done (full ckpt) → https://huggingface.co/{a.repo}/blob/main/last.ckpt")
 
 
 if __name__ == "__main__":

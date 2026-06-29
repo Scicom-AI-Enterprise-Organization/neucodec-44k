@@ -43,20 +43,26 @@ loss = mel + stft + feat_match + adversarial   vs  wav_44k (ground truth)
 
 Training runs on a **single H100 (80 GB), SECURE cloud** (COMMUNITY has no H100
 stock). Storage rules, by request:
-- Use **`/`** (the container disk). Start at **500 GB**, scale if needed.
+- Use **`/`** (the container disk). The scale-up run uses **1500 GB** (8 base corpora
+  ~347 GB re-downloaded + `scale44k` ~192 GB + checkpoints + transient peaks). Earlier
+  runs used 500 GB. `containerDiskInGb` can't be resized in place → redeploy a new pod.
+- **US region** (`--country-codes US`): a far-region pod (e.g. APNIC) makes HF/dataset
+  downloads slow. Kansas-City US pod measured ~47 MB/s single-stream to HF (faster with
+  16 parallel workers + Xet). Always launch the data pod in the US.
 - **Never `/workspace`** (that's the network volume) — `prepare_data.py` refuses it,
-  and `HF_HOME`/data/venvs/checkpoints all live under `/`.
+  and `HF_HOME`/data/venvs/checkpoints all live under `/`. We launch with `volumeInGb=0`
+  so there is **no** network volume at all (the empty `/workspace` image folder is inert).
 
 All RunPod control is via the REST API (`https://rest.runpod.io/v1`) using
 `RUNPOD_API_KEY` from `.env`. Secrets (`HF_TOKEN`, `WANDB_API_KEY`, …) are in `.env`
 and are rsync'd to the pod.
 
 ```bash
-# 1. provision the pod (1x H100 SECURE, 500GB container disk, SSH key injected)
-python3 runpod/launch_pod.py launch            # waits for RUNNING + prints ssh
+# 1. provision the pod (1x H100 SECURE, US region, 1500GB container disk, SSH key)
+python3 runpod/launch_pod.py launch --disk-gb 1500 --country-codes US   # waits for RUNNING + prints ssh
 python3 runpod/launch_pod.py status            # status + ssh endpoint
 python3 runpod/launch_pod.py ssh               # print ready-to-paste ssh cmd
-python3 runpod/launch_pod.py terminate         # tear it down (STOP THE BILL)
+python3 runpod/launch_pod.py terminate --pod-id <id>   # tear it down (STOP THE BILL)
 
 # 2. sync code, install deps, start training (reads runpod/pod.json)
 ./runpod/sync_and_launch.sh all                # sync + bootstrap + launch (background)
@@ -79,14 +85,30 @@ commands work without re-passing them.
 
 ## Data
 
-Three Malaysia-AI datasets (HF). **Log in with `HF_TOKEN`** and use `hf_transfer` +
-`hf_xet` for fast downloads (`prepare_data.py` does this). Audio is **mp3**.
+**Log in with `HF_TOKEN`** (every download passes `token=`) and use `hf_xet`
+(`HF_XET_HIGH_PERFORMANCE=1`) for fast downloads (`prepare_data.py` does this). The
+current run uses **8 base corpora + the `scale44k` expansion** (336 verified ≥44 kHz
+datasets). `--sources` selects which to fetch.
+
+Base corpora (`prepare_data.py` source keys):
 
 | source key | repo | format | size |
 |---|---|---|---|
 | `commonvoice` | `malaysia-ai/Multilingual-TTS` | 24× standalone `commonvoice22_sidon-*.zip` | short clips, ~100 GB |
 | `sg` | `malaysia-ai/singaporean-podcast-youtube` | **split zip** `sg-podcast.zip`+`.z01..z06` | 3451 files, 1255 h |
 | `malay` | `malaysia-ai/malaysian-podcast-youtube` | **split zip** `malaysian-podcast.zip`+`.z01..z11` | 19092 files, 2234 h |
+| `cartoons` | `malaysia-ai/malaysian-cartoons-youtube` | standalone zips (48k subset) | ~24 GB |
+| `movie` | `malaysia-ai/malaysian-movie-youtube` | standalone `part-*.zip` (48k) | ~1.8 GB |
+| `expresso_read` / `expresso_conv` | `ylacombe/expresso`, `nytopop/expresso-conversational` | HF datasets-format (48k) | ~15 GB |
+| `ears` | EARS (facebookresearch GitHub releases) | per-speaker zips (48k anechoic) | ~19 GB |
+
+**`scale44k` (the "scale more dataset" source):** 336 datasets SR-verified **≥44 kHz**
+(162×48k + 174×44.1k, ~192 GB), mirrored as `<name>*audio.zip` in
+`malaysia-ai/Multilingual-TTS`. The zip list lives in `runpod/scale44k_zips.txt`
+(derived from `…/srfilter/out/datasets_ge_44k.md`); `download_scale44k` pulls each zip,
+extracts to `/data/scale44k/<stem>/`, deletes it, and drops per-zip `.done` sentinels
+(resumable). Language is irrelevant — the codebook is frozen, so any clean ≥44 kHz
+audio improves the decoder.
 
 `prepare_data.py`:
 - Downloads **biggest-first** (`malay,sg,commonvoice`) and **deletes archives right
@@ -178,6 +200,15 @@ losses per step.
   `model.` (the NeuCodec submodule). `extend_decoder.py` shows how to strip the
   prefix to get a NeuCodec-loadable `.pt`; to **resume/finetune** just point
   `train.py` at the dir (auto-detects `last.ckpt`) or pass `ckpt=<file>.pt`.
+- **HF repo `Scicom-intl/neucodec-44k-d20`** holds BOTH artifacts:
+  - `pytorch_model.bin` — weights only, for **inference** (`push_to_hf.py` strips the
+    `model.` prefix; this is what the 12 h cron + `local_infer.py` use).
+  - `last.ckpt` — the **full** PL checkpoint **with optimizer_states (×2) + lr_schedulers
+    + global_step**, for **true resume**. Pull it into `<log_dir>/last.ckpt` and
+    `trainer.fit(ckpt_path=…)` continues with momentum intact.
+- **True resume across a redeploy:** `CKPT=null DEPTH=20` builds the depth-20 arch from
+  base neucodec (extra layers init, then resume overwrites all weights), so you do **not**
+  need `extended_20.pt` on a fresh pod — only `last.ckpt` in the log dir.
 
 ## Conventions / gotchas
 - **Manual optimization** (`automatic_optimization=False`): gradient accumulation is
@@ -199,9 +230,12 @@ losses per step.
 | `mos_callback.py` | per-epoch reconstruct + score + log `val/mos` |
 | `mos_score.py` | UTMOSv2 scorer (runs in `.venv-mos`) |
 | `config/` | Hydra configs (`default.yaml` has the `mos:` block) |
-| `runpod/launch_pod.py` | provision/status/ssh/terminate the pod |
+| `runpod/launch_pod.py` | provision/status/ssh/terminate the pod (`--disk-gb`, `--country-codes`) |
 | `runpod/bootstrap.sh` | system deps + uv venvs on the pod |
 | `runpod/run_44k_finetune.sh` | data prep + training launch (on pod) |
 | `runpod/sync_and_launch.sh` | local: rsync + bootstrap + launch |
+| `runpod/redeploy_scale44k.sh` | pod-side: pull full `last.ckpt` from HF + prep all data (8 base + scale44k) + resume d20 |
+| `runpod/scale44k_zips.txt` | manifest of the 336 ≥44 kHz `*audio.zip` to fetch for `scale44k` |
+| `push_to_hf.py` | weights-only push to HF (inference); `local_infer.py` decodes `audio/*.mp3` |
 | `neucodec/` | the NeuCodec model package (encoder/decoder/FSQ) |
 | `train_interpolator.py` | OUT OF SCOPE for now (token interpolation) |

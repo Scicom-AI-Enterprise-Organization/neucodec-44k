@@ -5,15 +5,15 @@ Scaling NeuCodec to 44.1k.
 ## Load from Hugging Face
 
 The finetuned 44.1 kHz decoder weights live at
-[`Scicom-intl/neucodec-44k`](https://huggingface.co/Scicom-intl/neucodec-44k)
-(private — authenticate with `huggingface-cli login` or an `HF_TOKEN` env var first).
+[`Scicom-intl/neucodec-44k-d20`](https://huggingface.co/Scicom-intl/neucodec-44k-d20)
+(authenticate with `huggingface-cli login` or an `HF_TOKEN` env var first).
 
 ```python
 import soundfile as sf
 from neucodec import NeuCodec
 
-# decoder_depth=12 matches the finetuned decoder; pass token=... for the private repo
-model = NeuCodec._from_pretrained(model_id="Scicom-intl/neucodec-44k", decoder_depth=12)
+# decoder_depth=20 MUST match the finetuned decoder (the d20 repo is a depth-20 decoder)
+model = NeuCodec._from_pretrained(model_id="Scicom-intl/neucodec-44k-d20", decoder_depth=20)
 model = model.eval().cuda()
 
 # encode: any audio file (resampled to 16 kHz internally for the frozen encoder)
@@ -28,7 +28,11 @@ Notes:
 - The encoder + FSQ codebook are unchanged from base NeuCodec — only the decoder
   was finetuned to reconstruct 44.1 kHz, so codes are interchangeable with the base
   model. `model.sample_rate == 44100`.
-- Re-push a newer checkpoint with `python push_to_hf.py --ckpt 44k/last.ckpt --repo Scicom-intl/neucodec-44k`.
+- `decoder_depth=20` is required: the weights are a depth-20 decoder, so loading with
+  any other depth mismatches the architecture.
+- The repo also ships `last.ckpt` (full PyTorch-Lightning checkpoint, with optimizer
+  states) for resuming training; `pytorch_model.bin` is the weights-only inference file.
+- Re-push a newer checkpoint with `python push_to_hf.py --ckpt 44k_d20/<epoch=*-step=N.ckpt> --repo Scicom-intl/neucodec-44k-d20`.
 
 ## Decoder depth & trainable parameters
 
@@ -83,7 +87,7 @@ dataset.train.batch_size=8 \
 dataset.val.filelist="test.txt"
 ```
 
-Check WanDB at https://wandb.ai/huseinzol05/wandb_project
+Check WandB at https://wandb.ai/aies-scicom-scicom-ai/neucodec_44k
 
 Actual training,
 
